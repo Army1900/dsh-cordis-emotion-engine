@@ -60,7 +60,16 @@
 
 ---
 
-## 🚀 快速开始
+## 📦 安装
+
+情绪引擎支持两种安装方式，按使用场景选择：
+
+| 方式 | 适用场景 | 持久性 |
+| --- | --- | --- |
+| **A. 会话内动态加载**（推荐） | 单会话试用、开发调试、随用随装 | 当前进程内，重启后需重新定义 |
+| **B. 常规插件安装**（进阶） | 想让插件常驻、随 DSH 一起启动 | 写入 host `cordis.yml`，重启即自动加载 |
+
+### 方式 A：会话内动态加载（推荐）
 
 情绪引擎是一个**动态 Cordis 插件**，在 DSH 会话中通过 `@pluginId` 机制加载。源码以函数体形式存放在 `src/`：
 
@@ -69,7 +78,7 @@
 | `src/host.js` | `cordis_define` 的 `code.host` |
 | `src/client.js` | `cordis_define` 的 `code.client` |
 
-### 加载步骤（在 DSH 会话中）
+**加载步骤（在 DSH 会话中）：**
 
 1. **定义**：将 `src/host.js` 与 `src/client.js` 的内容分别作为 `code.host` / `code.client` 传入 `cordis_define`：
 
@@ -84,6 +93,35 @@
 3. **生效**：页面右下角出现水波悬浮球，自动感知默认开启。
 
 > 已有同名插件的会话，可用 `kind: "existing"` + 原 `pluginId` 追加新 Package，用 `cordis_run` 的 `update` 模式升级。
+
+**日常维护：**
+
+| 操作 | 命令 |
+| --- | --- |
+| 暂停（保留定义） | `cordis_stop <pluginId>` |
+| 恢复运行 | `cordis_run <pluginId> <packageId> run` |
+| 升级到新版本 | `cordis_define` 追加 Package → `cordis_run ... update` |
+| 永久移除 | `cordis_undefine <pluginId>` |
+| 查看诊断 | `cordis_inspect_self <pluginId> <packageId>` |
+
+### 方式 B：常规插件安装（进阶）
+
+DSH 的常规插件通过 **host 组合文件 `cordis.yml`** 加载：每个插件是一行（`name` 指向 npm 包或本地路径，`config` 携带配置），随 DSH 进程启动自动激活，不依赖会话。
+
+本仓库源码目前是**动态插件函数体**格式，静态安装需要先做一层包装：
+
+1. **包装 Host 半部**：把 `src/host.js` 改写为标准 Cordis 插件模块（`export const name = 'dsh-cordis-emotion-engine'` + `export function apply(ctx) { ... }`）。
+2. **打包 Client 半部**：按 DSH web 插件（`dsh.client`）形式打包浏览器端资源，随包发布。
+3. **挂载到 `cordis.yml`**：在 DSH 的 host `cordis.yml` 增加一行（本地路径或已发布的 npm 包）：
+
+   ```yaml
+   - id: emotion-engine
+     name: ./dsh-cordis-emotion-engine
+   ```
+
+4. **重启 DSH** 生效。
+
+> ⚠️ 该路径涉及插件包装与打包基建，属于后续路线（见 [TODO](#-todo)）。日常使用推荐方式 A，两种方式功能等价。
 
 ---
 
@@ -158,6 +196,13 @@ dsh-cordis-emotion-engine/
 - **层级**：动态背景位于 `shell.overlay`（平台机制上在所有内容之上），因此采用低强度 `soft-light` 混合避免遮挡文字；若仍嫌明显可进一步降低透明度
 - **全局情绪**：目前注入的是"最近一次活跃会话"的情绪（全局共享）；多会话并行时会有轻微串扰，如需按会话隔离需引入 scope 映射
 - **词表识别**：关键字评分为启发式，口语新词可能漏判（可在 `KEYWORDS` 中补充）
+
+## 🚧 TODO
+
+- [ ] **常规插件包装（安装方式 B）**：将 Host 半部包装为标准 Cordis 插件模块、Client 半部打包为 `dsh.client` web 插件，发布 npm 或提供本地 `cordis.yml` 挂载模板
+- [ ] **按会话隔离情绪**：通过 scope 映射让每个会话注入各自的情绪，避免多会话串扰
+- [ ] **情绪词表增强**：补充口语化情绪词（砸了/服了/完了/糟了 等），支持自定义词表配置
+- [ ] **效果截图/演示**：为 README 补充各情绪主题的界面截图
 
 ## 📄 License
 
