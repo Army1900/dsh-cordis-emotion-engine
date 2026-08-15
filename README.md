@@ -104,24 +104,36 @@
 | 永久移除 | `cordis_undefine <pluginId>` |
 | 查看诊断 | `cordis_inspect_self <pluginId> <packageId>` |
 
-### 方式 B：常规插件安装（进阶）
+### 方式 B：常规插件安装（npm 发布版）
 
-DSH 的常规插件通过 **host 组合文件 `cordis.yml`** 加载：每个插件是一行（`name` 指向 npm 包或本地路径，`config` 携带配置），随 DSH 进程启动自动激活，不依赖会话。
+情绪引擎已包装为**标准 npm 包**（Host + Client 双半部），发布后可通过 host 组合文件 `cordis.yml` 一行挂载、随 DSH 启动常驻。
 
-本仓库源码目前是**动态插件函数体**格式，静态安装需要先做一层包装：
+**包结构：**
 
-1. **包装 Host 半部**：把 `src/host.js` 改写为标准 Cordis 插件模块（`export const name = 'dsh-cordis-emotion-engine'` + `export function apply(ctx) { ... }`）。
-2. **打包 Client 半部**：按 DSH web 插件（`dsh.client`）形式打包浏览器端资源，随包发布。
-3. **挂载到 `cordis.yml`**：在 DSH 的 host `cordis.yml` 增加一行（本地路径或已发布的 npm 包）：
+| 入口 | 用途 |
+| --- | --- |
+| `dsh-cordis-emotion-engine`（主入口） | Host 半部：`apply(ctx)` 注册 `EmotionService`（Remote）+ 系统提示词注入 |
+| `dsh-cordis-emotion-engine/client` | Client 半部：`dsh.client` web 插件（`exports["./client"]`） |
+| `dsh-cordis-emotion-engine/remote` | Typert Remote contribution（Client 挂载用） |
 
-   ```yaml
-   - id: emotion-engine
-     name: ./dsh-cordis-emotion-engine
-   ```
+**构建与发布：**
 
-4. **重启 DSH** 生效。
+```bash
+npm install          # 安装依赖
+npm run build        # tsc 类型声明 + tsdown 打包 → lib/
+npm publish          # 发布到 npm registry
+```
 
-> ⚠️ 该路径涉及插件包装与打包基建，属于后续路线（见 [TODO](#-todo)）。日常使用推荐方式 A，两种方式功能等价。
+**挂载到 DSH（host `cordis.yml`）：**
+
+```yaml
+- id: emotion-engine
+  name: dsh-cordis-emotion-engine
+```
+
+重启 DSH 后插件自动加载：Host 半部激活（Remote + 提示词注入），Client 半部通过包的 `dsh.client` 声明被运行时发现，浏览器按需加载 `/plugins/<id>/client.js`。
+
+> 前提：DSH 部署需已挂载 typert 网关（`@deepseek-ai/dsh-api-gateway`，默认部署自带）。
 
 ---
 
@@ -159,23 +171,35 @@ DSH 的常规插件通过 **host 组合文件 `cordis.yml`** 加载：每个插�
 
 ## 📁 仓库结构
 
+仓库包含**两套源码**：`src/host.js` + `src/client.js` 为动态插件版函数体（安装方式 A），`src/index.ts` 等为可发布 npm 包版（安装方式 B）。
+
 ```
 dsh-cordis-emotion-engine/
-├── README.md          # 本文件
-├── package.json       # 元信息
-└── src/
-    ├── host.js        # Host 半部（情绪分析 + 提示词注入）函数体
-    └── client.js      # Client 半部（UI + 主题 + 动态背景）函数体
+├── README.md              # 本文件
+├── package.json           # 包元信息（exports / dsh.client / peerDependencies）
+├── tsconfig.json          # TypeScript 配置（声明产出到 lib/types/）
+├── tsdown.config.ts       # 打包配置（lib/index.mjs / index.js / remote）
+├── scripts/
+│   └── smoke-host.mjs     # Host 半部冒烟测试（裸 Cordis Context）
+├── src/
+│   ├── host.js            # 【方式 A】动态插件 Host 半部函数体
+│   ├── client.js          # 【方式 A】动态插件 Client 半部函数体
+│   ├── index.ts           # 【方式 B】Host 半部：EmotionService(Remote) + 分析 + 提示词注入
+│   ├── typert.remote-client.ts  # 【方式 B】Typert Remote contribution（Client 挂载用）
+│   └── client/
+│       ├── index.tsx      # 【方式 B】Client 半部：dsh.client 插件入口（$mount + slots）
+│       └── EmotionWidget.tsx    # 水波球 + 情绪面板 + 动态背景组件
+└── lib/                   # 构建产物（npm publish 内容，不入库）
 ```
 
 ## 🛠️ 开发与调试
 
-- **查看诊断**：`cordis_inspect_self(pluginId, packageId)` 读取 Package 源码与运行时诊断
-- **更新**：追加新 Package（不可覆盖旧版本）→ `cordis_run` `update` 模式
-- **回滚**：`cordis_run` `run` 模式切回 `currentPackageId`
-- **暂停/删除**：`cordis_stop`（保留定义）/ `cordis_undefine`（永久移除）
-- **调词表**：编辑 `src/host.js` 的 `KEYWORDS`（5 类情绪各一份中英关键词）
-- **调配色/动效**：编辑 `src/client.js` 的 `MOODS.tokens` 与 CSS keyframes
+- **构建**：`npm run build`（tsc 声明 + tsdown 打包），产物在 `lib/`
+- **类型检查**：`npm run typecheck`
+- **调词表**：编辑 `src/index.ts` 的 `KEYWORDS`（5 类情绪各一份中英关键词）
+- **调配色/动效**：编辑 `src/client/EmotionWidget.tsx` 的 `MOODS.tokens` 与 `CSS`
+- **改 Remote 契约**：同步修改 `src/index.ts`（EmotionService 方法）与 `src/typert.remote-client.ts`（descriptors）
+- **本地挂载测试**：`npm pack` 后在 DSH 的 host `cordis.yml` 加 `- id: emotion-engine` + `name: <tgz 路径>`，重启 DSH
 
 ## 📜 版本历史
 
@@ -190,6 +214,7 @@ dsh-cordis-emotion-engine/
 | v7 | **情绪注入系统提示词**（systemPrompt.section 动态求值） |
 | v8 | 动态背景降低强度、理顺层级，避免遮挡会话文字 |
 | v9 | 更名"情绪引擎 Emotion Engine" |
+| v10 | **可发布 npm 包**：标准 Cordis 插件结构、EmotionService Remote、dsh.client bundle、tsdown 构建 |
 
 ## ⚠️ 已知限制
 
@@ -199,7 +224,8 @@ dsh-cordis-emotion-engine/
 
 ## 🚧 TODO
 
-- [ ] **常规插件包装（安装方式 B）**：将 Host 半部包装为标准 Cordis 插件模块、Client 半部打包为 `dsh.client` web 插件，发布 npm 或提供本地 `cordis.yml` 挂载模板
+- [x] **常规插件包装（安装方式 B）**：标准 npm 包结构 + Remote 服务 + `dsh.client` bundle + tsdown 构建
+- [ ] **发布到 npm registry**：`npm publish`（需 npm 账号，发布后实测挂载）
 - [ ] **按会话隔离情绪**：通过 scope 映射让每个会话注入各自的情绪，避免多会话串扰
 - [ ] **情绪词表增强**：补充口语化情绪词（砸了/服了/完了/糟了 等），支持自定义词表配置
 - [ ] **效果截图/演示**：为 README 补充各情绪主题的界面截图
