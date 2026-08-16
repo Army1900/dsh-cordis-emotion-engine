@@ -227,6 +227,20 @@ dsh-cordis-emotion-engine/
 - **全局情绪**：目前注入的是"最近一次活跃会话"的情绪（全局共享）；多会话并行时会有轻微串扰，如需按会话隔离需引入 scope 映射
 - **词表识别**：关键字评分为启发式，口语新词可能漏判（可在 `KEYWORDS` 中补充）
 
+## 🐛 常见问题（踩坑速查）
+
+| 症状 | 根因 | 修复 |
+| --- | --- | --- |
+| patch 加了行插件不加载 | patch 是 `PatchOptions` 语义，`{id,name}` 是覆盖不是新增 | 用无 id 的 `- insert:` |
+| 启动报 `__ModuleLoader__.load` 未注册 | client bundle 不是 factory 格式 | tsdown `format: 'cjs'` + banner/footer |
+| `cannot get property "remote.emotion" without inject` | Guard 拦截命名空间访问；inject 声明又会让 boot 永久等待 | inject 只声明 `remote`，用 `ctx.get('remote.emotion')` 拿 |
+| `/api/emotion/analyze` 404 | 端点没注册；apply 时 typert 服务不可见 | fiber 激活后（延迟）`typert.register(...)` |
+| 接口 200 但 UI 无状态 | remote 返回 `{ok, value}`，组件没解包 | `res.value.mood` |
+| 最新消息情绪被历史压过 | 加权太平缓 | 最新消息权重 3.0 → 最早 0.5 陡峭衰减 |
+| 改了没生效 | 部署目录旧产物残留 | `rm -rf` 部署 lib 再解压 |
+
+> 📖 每个问题的完整分析（症状 → 根因 → 修复 → 教训）见 [docs/FIXING-EXPERIENCE.md](docs/FIXING-EXPERIENCE.md)。
+
 ## 🚧 TODO
 
 - [x] **常规插件包装（安装方式 B）**：标准 npm 包结构 + Remote 服务 + `dsh.client` bundle + tsdown 构建
