@@ -10,6 +10,7 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import TYPERT_REMOTE from './typert.remote-client'
 
 /** 五种情绪键。 */
 export type EmotionKey = 'happy' | 'calm' | 'tired' | 'anxious' | 'angry'
@@ -47,12 +48,13 @@ interface SessionQueryFace {
   filterEvents(sessionId: string, filters: readonly unknown[]): Promise<readonly SessionEventDoc[]>
 }
 
-/** 对最近 N 条用户消息做关键字情感评分（消息越新权重越高）。 */
+/** 对最近 N 条用户消息做关键字情感评分（最新消息主导：权重陡峭衰减）。 */
 function analyzeMood(docs: readonly SessionEventDoc[]): EmotionKey | null {
   if (docs.length === 0) return null
   const scores: Record<EmotionKey, number> = { happy: 0, calm: 0, tired: 0, anxious: 0, angry: 0 }
   docs.forEach((doc, i) => {
-    const weight = 1 + (i / docs.length) * 2
+    // 最新一条权重 3，最早的 ≈0.5：最近的情绪状态优先于历史积累。
+    const weight = docs.length === 1 ? 3 : 0.5 + (i / (docs.length - 1)) * 2.5
     const text = doc.text.toLowerCase()
     for (const emotion of Object.keys(KEYWORDS) as EmotionKey[]) {
       for (const kw of KEYWORDS[emotion]) {
@@ -151,24 +153,43 @@ export function apply(ctx: Context) {
   // 注册 Remote 服务（构造即 provide + typert 绑定）。
   const service = new EmotionService(ctx)
 
-  // 系统提示词注入：每次模型调用动态读取当前情绪。
-  const systemPrompt = ctx.get('systemPrompt') as {
-    section(section: {
-      name: string
-      order: number
-      text: string | ((context: unknown) => string)
-    }): () => void
-  } | undefined
-  if (systemPrompt !== undefined) {
-    systemPrompt.section({
-      name: 'user-mood',
-      order: 80,
-      text: () => {
-        const mood = service.mood
-        if (mood === null) return ''
-        const info = MOOD_INFO[mood]
-        return `[用户情绪感知] 用户当前情绪：${info.label}。${info.hint}`
-      },
-    })
-  }
+  // 延迟初始化：插件 apply 运行在 fiber 激活前，父级服务（typert、
+  // systemPrompt）此时尚未提交；fiber 激活后再注册端点与提示词段落。
+  setTimeout(() => {
+    // 1) 端点注册进 typert registry：网关 claimsEndpoint 第一分支
+    //    （ctx.typert.local）直接命中，不依赖 srcClaims 懒缓存时序。
+    const typert = ctx.get('typert') as {
+      register(contribution: unknown): unknown
+    } | undefined
+    if (typert !== undefined) {
+      typert.register({
+        package: TYPERT_REMOTE.package,
+        face: 'host',
+        schemas: [],
+        model: { services: [], events: [], objects: [] },
+        invocations: TYPERT_REMOTE.descriptors,
+      })
+    }
+
+    // 2) 系统提示词注入：每次模型调用动态读取当前情绪。
+    const systemPrompt = ctx.get('systemPrompt') as {
+      section(section: {
+        name: string
+        order: number
+        text: string | ((context: unknown) => string)
+      }): () => void
+    } | undefined
+    if (systemPrompt !== undefined) {
+      systemPrompt.section({
+        name: 'user-mood',
+        order: 80,
+        text: () => {
+          const mood = service.mood
+          if (mood === null) return ''
+          const info = MOOD_INFO[mood]
+          return `[用户情绪感知] 用户当前情绪：${info.label}。${info.hint}`
+        },
+      })
+    }
+  }, 2000)
 }

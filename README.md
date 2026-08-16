@@ -124,11 +124,15 @@ npm run build        # tsc 类型声明 + tsdown 打包 → lib/
 npm publish          # 发布到 npm registry
 ```
 
-**挂载到 DSH（host `cordis.yml`）：**
+**挂载到 DSH（用户 profile 的 `cordis.patch.yml`）：**
+
+> ⚠️ **关键**：patch 列表是 `PatchOptions` 语义 —— 新增插件行必须用**无 id 的 `insert`**。
+> 直接写 `- id: xxx` + `name: xxx` 会被当作"覆盖已有 entry"处理，因找不到目标而被静默跳过（插件不加载）。
 
 ```yaml
-- id: emotion-engine
-  name: dsh-cordis-emotion-engine
+- insert:
+    - id: emotion-engine
+      name: dsh-cordis-emotion-engine
 ```
 
 重启 DSH 后插件自动加载：Host 半部激活（Remote + 提示词注入），Client 半部通过包的 `dsh.client` 声明被运行时发现，浏览器按需加载 `/plugins/<id>/client.js`。
@@ -214,6 +218,7 @@ dsh-cordis-emotion-engine/
 | v7 | **情绪注入系统提示词**（systemPrompt.section 动态求值） |
 | v8 | 动态背景降低强度、理顺层级，避免遮挡会话文字 |
 | v9 | 更名"情绪引擎 Emotion Engine" |
+| v10 | **可发布 npm 包**：标准 Cordis 插件结构（Host Remote + Client bundle）、tsdown 构建、typert registry 端点注册 |
 | v10 | **可发布 npm 包**：标准 Cordis 插件结构、EmotionService Remote、dsh.client bundle、tsdown 构建 |
 
 ## ⚠️ 已知限制

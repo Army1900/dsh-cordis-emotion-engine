@@ -12,11 +12,11 @@ import { EmotionWidget } from './EmotionWidget'
 import TYPERT_REMOTE from '../typert.remote-client'
 import type { EmotionKey } from '../index'
 
-/** emotion.* Remote 面。 */
+/** emotion.* Remote 面（RemoteResult 形状：{ ok, value }）。 */
 export interface EmotionRemoteFace {
-  get(): Promise<{ mood: EmotionKey | null }>
-  analyze(sessionId: string): Promise<{ mood: EmotionKey | null }>
-  set(args: { mood: EmotionKey | null }): Promise<{ ok: true }>
+  get(): Promise<{ ok: true; value: { mood: EmotionKey | null } }>
+  analyze(sessionId: string): Promise<{ ok: true; value: { mood: EmotionKey | null } }>
+  set(args: { mood: EmotionKey | null }): Promise<{ ok: true; value: { ok: true } }>
 }
 
 /** Client 运行时面（结构化类型）。 */
@@ -41,22 +41,49 @@ interface ThemeFace {
 
 export const name = 'dsh-cordis-emotion-engine'
 
-export async function apply(ctx: ClientCtx) {
+/**
+ * 只声明 'remote'：'remote.emotion' 是 $mount 后才注册的服务，
+ * 若声明为 inject 会让 boot 阶段永久等待（pending）。
+ * $mount 完成后通过 ctx.get('remote.emotion') 获取（ctx.get 不检查 inject）。
+ */
+export const inject = ['remote']
+
+/** 模块级防重复挂载：apply 可能被多次调用（会话/激活）。 */
+let remoteMounted = false
+
+/**
+ * Client 插件 apply 必须是同步函数（加载器不 await 返回值），
+ * 因此 $mount（异步）完成后才注册 slots UI。
+ */
+export function apply(ctx: ClientCtx) {
   const slots = ctx.get<SlotsFace>('slots')
   const theme = ctx.get<ThemeFace>('theme')
   if (slots === undefined || theme === undefined) return
 
-  // 挂载本包 Remote 命名空间（emotion.*）。
-  await ctx.remote.$mount(TYPERT_REMOTE)
+  const registerUi = () => {
+    // $mount 完成后 'remote.emotion' 服务已注册，ctx.get 直接读取（绕过 Guard 的注入检查）。
+    const emotion = ctx.get('remote.emotion') as EmotionRemoteFace | undefined
+    if (emotion === undefined) return
+    slots.inject('shell.overlay', () => slots.register(
+      { name: 'shell.overlay', id: 'mood-widget', order: 100 },
+      (props) => (
+        <EmotionWidget
+          useSessions={props.useSessions}
+          theme={theme}
+          emotion={emotion}
+        />
+      ),
+    ))
+  }
 
-  slots.inject('shell.overlay', () => slots.register(
-    { name: 'shell.overlay', id: 'mood-widget', order: 100 },
-    (props) => (
-      <EmotionWidget
-        useSessions={props.useSessions}
-        theme={theme}
-        remote={ctx.remote}
-      />
-    ),
-  ))
+  if (remoteMounted) {
+    registerUi()
+    return
+  }
+  remoteMounted = true
+  ctx.remote.$mount(TYPERT_REMOTE)
+    .then(registerUi)
+    .catch((error) => {
+      console.error('[emotion-engine] remote mount failed:', error)
+    })
 }

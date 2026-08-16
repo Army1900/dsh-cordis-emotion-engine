@@ -13,19 +13,23 @@ export interface ThemeFace {
   overrideTokens(source: string, tokens: Record<string, { light: string; dark: string }>): () => void
 }
 
-/** Remote 面（emotion.*，来自 Typert $mount 挂载）。 */
-export interface RemoteFace {
-  emotion: {
-    get(): Promise<{ mood: EmotionKey | null }>
-    analyze(sessionId: string): Promise<{ mood: EmotionKey | null }>
-    set(args: { mood: EmotionKey | null }): Promise<{ ok: true }>
-  }
+/** Remote 方法返回 RemoteResult 形状：{ ok: true, value: T } | { ok: false, error }。 */
+interface RemoteOk<T> {
+  ok: true
+  value: T
+}
+
+/** emotion Remote 命名空间服务（$mount 后注册为 ctx 'remote.emotion'，由 apply 传入）。 */
+export interface EmotionRemote {
+  get(): Promise<RemoteOk<{ mood: EmotionKey | null }>>
+  analyze(sessionId: string): Promise<RemoteOk<{ mood: EmotionKey | null }>>
+  set(args: { mood: EmotionKey | null }): Promise<RemoteOk<{ ok: true }>>
 }
 
 export interface EmotionWidgetProps {
   useSessions: (sel: (s: { current?: string }) => string | undefined) => string | undefined
   theme: ThemeFace
-  remote: RemoteFace
+  emotion: EmotionRemote
 }
 
 interface MoodDef {
@@ -233,7 +237,7 @@ const CSS = `
  * 水波悬浮球组件。
  */
 export function EmotionWidget(props: EmotionWidgetProps) {
-  const { useSessions, theme, remote } = props
+  const { useSessions, theme, emotion } = props
   const sessionId = useSessions((s) => s.current)
   const [mood, setMood] = useState<EmotionKey | null>(null)
   const [prevMood, setPrevMood] = useState<EmotionKey | null>(null)
@@ -258,17 +262,20 @@ export function EmotionWidget(props: EmotionWidgetProps) {
 
   // 情绪变化 → 同步给 Host（系统提示词注入）。
   useEffect(() => {
-    remote.emotion.set({ mood }).catch(() => {})
-  }, [mood, remote])
+    emotion.set({ mood }).catch(() => {})
+  }, [mood, emotion])
 
   const runAnalysis = () => {
     if (!sessionId) return
-    remote.emotion.analyze(sessionId)
+    emotion.analyze(sessionId)
       .then((res) => {
-        if (!res || !res.mood) return
-        if (res.mood !== moodRef.current) {
+        // RemoteResult 形状：{ ok, value: { mood } }，先解包。
+        if (!res || !res.ok) return
+        const detected = res.value.mood
+        if (!detected) return
+        if (detected !== moodRef.current) {
           setPrevMood(moodRef.current)
-          setMood(res.mood)
+          setMood(detected)
         }
       })
       .catch(() => {})
@@ -280,7 +287,7 @@ export function EmotionWidget(props: EmotionWidgetProps) {
     runAnalysis()
     const id = window.setInterval(runAnalysis, 2500)
     return () => window.clearInterval(id)
-  }, [auto, sessionId, remote])
+  }, [auto, sessionId, emotion])
 
   const choose = (key: EmotionKey) => {
     if (key === mood) return
