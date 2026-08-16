@@ -217,6 +217,39 @@ tar -xzf dsh-cordis-emotion-engine-0.1.0.tgz -C ... --strip-components=1
 
 ---
 
+## 问题 8：LLM 调用返回空流（只有 finish，没有 text-delta）
+
+**症状**：LLM 语境分析调用执行了（模型选择正确），但流式输出为空 ——
+`chunk types: finish`（没有任何 `text-delta`），情绪永远判为 neutral/null。
+
+**根因**：`llm.stream()` 的 `messages` 里 `Message.content` 必须是 **`ContentBlock[]`**
+（如 `[{ type: 'text', text }]`），不能是裸字符串。传字符串时适配器不认 → 模型空响应。
+
+**修复**：
+
+```ts
+llm.stream({
+  provider, model,
+  messages: [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(texts) }] }],
+  system: MOOD_SYSTEM_PROMPT,
+  temperature: 0,
+  maxTokens: 64,   // 别太小：reasoning 模型会吃掉 token
+})
+```
+
+**教训**：调用 `llm.stream` 前先查 `Message` / `ContentBlock` 类型契约（`@deepseek-ai/dsh-llm`）；
+流式结果用 `chunk.type === 'text-delta'` 收集。
+
+## 问题 9：事件驱动 vs 轮询（成本设计）
+
+**设计**：情绪分析不能每 2.5s 轮询（浪费），应该**事件驱动**：
+- Host 监听 `session/event`（新 `user/message` 到达）→ **防抖 2s**（连续消息合并）→ 分析一次
+- Client 只轻量轮询 `get()`（读状态，无分析开销）
+- 无新消息 = 零模型调用
+
+**注意**：`session/event` 是 scoped 事件，监听器要确认真的收到事件（用自证文件验证）；
+事件名不在 `Events` 类型声明时用显式面 `(ctx as ...).on(name, fn)` 注册。
+
 ## 方法论（怎么高效排查这类问题）
 
 1. **自证文件**：在运行时写文件（`writeFileSync`）确认"某段代码是否真的执行了"、

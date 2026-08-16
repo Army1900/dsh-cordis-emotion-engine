@@ -235,6 +235,9 @@ export function apply(ctx: Context) {
           debounceTimer = setTimeout(() => { void analyzeContext(sid) }, 2000)
         } catch { /* 忽略监听器错误 */ }
       })
+      // 备用监听：用户消息进入 inbox 时触发（agent 作用域）。
+      events.on('agent/inbox/inserted', () => {
+      })
 
       const analyzeContext = async (sid: string): Promise<void> => {
         try {
@@ -285,10 +288,10 @@ async function analyzeWithLlm(
     const stream = llm.stream({
       provider,
       model,
-      messages: [{ role: 'user', content: JSON.stringify(texts) }],
+      messages: [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(texts) }] }],
       system: MOOD_SYSTEM_PROMPT,
       temperature: 0,
-      maxTokens: 12,
+      maxTokens: 64,
     })
     for await (const chunk of stream) {
       if (chunk.type === 'text-delta') output += chunk.text ?? ''
@@ -297,7 +300,7 @@ async function analyzeWithLlm(
     if (word === 'neutral' || word === '') return null
     const keys: readonly EmotionKey[] = ['happy', 'calm', 'tired', 'anxious', 'angry']
     return (keys as readonly string[]).includes(word) ? word as EmotionKey : null
-  } catch {
+  } catch (error) {
     return null
   }
 }
