@@ -1,7 +1,7 @@
 /**
  * 情绪引擎 — 水波悬浮球组件
  *
- * 半透明水波球 + 磨砂情绪面板：自动感知（轮询 emotion/analyze）或手动选择，
+ * 半透明水波球 + 磨砂情绪面板：自动感知（Host 监听新消息分析，Client 轻量轮询状态）或手动选择，
  * 通过 theme.overrideTokens 覆盖全局主题 token（含侧边栏），并渲染情绪专属的
  * 全屏动态渐变背景层（低强度 soft-light，避免遮挡会话文字）。
  */
@@ -265,27 +265,27 @@ export function EmotionWidget(props: EmotionWidgetProps) {
     emotion.set({ mood }).catch(() => {})
   }, [mood, emotion])
 
-  const runAnalysis = () => {
+  // 轮询 Host 当前情绪（Host 在新消息时自动分析并更新，这里只读状态，不重复分析）。
+  const runPoll = () => {
     if (!sessionId) return
-    emotion.analyze(sessionId)
+    emotion.get()
       .then((res) => {
         // RemoteResult 形状：{ ok, value: { mood } }，先解包。
         if (!res || !res.ok) return
-        const detected = res.value.mood
-        if (!detected) return
-        if (detected !== moodRef.current) {
+        const current = res.value.mood
+        if (current !== moodRef.current) {
           setPrevMood(moodRef.current)
-          setMood(detected)
+          setMood(current)
         }
       })
       .catch(() => {})
   }
 
-  // 自动感知：每 2.5s 轮询。
+  // 自动感知：每 3s 轮询一次状态（无副作用，仅读取）。
   useEffect(() => {
     if (!auto || !sessionId) return
-    runAnalysis()
-    const id = window.setInterval(runAnalysis, 2500)
+    runPoll()
+    const id = window.setInterval(runPoll, 3000)
     return () => window.clearInterval(id)
   }, [auto, sessionId, emotion])
 

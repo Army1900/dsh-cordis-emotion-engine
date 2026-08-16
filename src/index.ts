@@ -139,6 +139,14 @@ export class EmotionService extends TypertRemoteService<{ mood: EmotionKey | nul
       : null
     return { ok: true }
   }
+
+  /**
+   * 更新自动检测到的情绪（仅在新消息分析出情绪时调用；null 不覆盖，
+   * 避免无信号时清掉当前状态造成闪烁）。
+   */
+  setDetected(mood: EmotionKey | null): void {
+    if (mood !== null && KEYWORDS[mood] !== undefined) this._mood = mood
+  }
 }
 
 // 手动绑定 Remote 标记（等价于 @Remote('get') 等装饰器）。
@@ -191,5 +199,105 @@ export function apply(ctx: Context) {
         },
       })
     }
+
+    // 3) 监听新用户消息：事件驱动 + 防抖 —— 仅当有新 user/message 事件时才
+    //    基于最近 5 条用户输入做一次 LLM 语境分析（不是轮询、不是每条都调），
+    //    LLM 不可用/失败时回退到关键字分析。
+    const sessionQuery = ctx.get('sessionQuery') as SessionQueryFace | undefined
+    const llm = ctx.get('llm') as {
+      stream(options: {
+        provider: string
+        model: string
+        messages: readonly unknown[]
+        system?: string
+        temperature?: number
+        maxTokens?: number
+        signal?: AbortSignal
+      }): AsyncIterable<{ type: string; text?: string }>
+    } | undefined
+    const agentDefaultModel = ctx.get('agentDefaultModel') as {
+      currentSelection(): { provider?: string; model?: string } | undefined
+    } | undefined
+    if (sessionQuery !== undefined) {
+      // 事件名不在 Context 的 Events 声明中，用显式面注册。
+      const events = ctx as unknown as {
+        on(name: string, listener: (session: unknown, event: { type?: string }) => void): unknown
+      }
+      // 防抖：连续消息在 2s 窗口内合并为一次分析。
+      let debounceTimer: ReturnType<typeof setTimeout> | undefined
+      events.on('session/event', (session, event) => {
+        try {
+          if (event.type !== 'user/message') return
+          const sid = (session as { id?: string }).id
+            ?? (session as unknown as { sessionId?: string }).sessionId
+          if (typeof sid !== 'string') return
+          if (debounceTimer !== undefined) clearTimeout(debounceTimer)
+          debounceTimer = setTimeout(() => { void analyzeContext(sid) }, 2000)
+        } catch { /* 忽略监听器错误 */ }
+      })
+
+      const analyzeContext = async (sid: string): Promise<void> => {
+        try {
+          const docs = await sessionQuery.filterEvents(sid, [{ kind: 'type', values: ['user/message'] }])
+          const texts = docs.slice(-5).map((doc) => doc.text).filter(Boolean)
+          if (texts.length === 0) return
+
+          // 优先 LLM 语境分析（取用户当前默认模型）。
+          let mood: EmotionKey | null = null
+          const selection = agentDefaultModel?.currentSelection()
+          if (llm !== undefined && selection?.provider && selection?.model) {
+            mood = await analyzeWithLlm(llm, selection.provider, selection.model, texts)
+          }
+          // fallback：LLM 不可用或未识别出情绪 → 关键字分析。
+          if (mood === null) mood = analyzeMood(docs.slice(-5))
+          if (mood !== null) service.setDetected(mood)
+        } catch { /* 分析失败保持当前情绪 */ }
+      }
+    }
   }, 2000)
+}
+
+/** LLM 语境分析：综合最近用户输入判断情绪，返回情绪键或 null。 */
+async function analyzeWithLlm(
+  llm: {
+    stream(options: {
+      provider: string
+      model: string
+      messages: readonly unknown[]
+      system?: string
+      temperature?: number
+      maxTokens?: number
+      signal?: AbortSignal
+    }): AsyncIterable<{ type: string; text?: string }>
+  },
+  provider: string,
+  model: string,
+  texts: readonly string[],
+): Promise<EmotionKey | null> {
+  const MOOD_SYSTEM_PROMPT = [
+    '你是用户情绪识别助手。下面是该用户最近的输入（JSON 字符串数组，按时间从早到晚）。',
+    '请综合语境（语气、意图、上下文）判断用户当前最可能的情绪状态，只输出一个英文词：',
+    'happy / calm / tired / anxious / angry / neutral',
+    'neutral 表示没有明显情绪。不要输出任何其他内容。',
+  ].join('\n')
+  try {
+    let output = ''
+    const stream = llm.stream({
+      provider,
+      model,
+      messages: [{ role: 'user', content: JSON.stringify(texts) }],
+      system: MOOD_SYSTEM_PROMPT,
+      temperature: 0,
+      maxTokens: 12,
+    })
+    for await (const chunk of stream) {
+      if (chunk.type === 'text-delta') output += chunk.text ?? ''
+    }
+    const word = output.trim().toLowerCase()
+    if (word === 'neutral' || word === '') return null
+    const keys: readonly EmotionKey[] = ['happy', 'calm', 'tired', 'anxious', 'angry']
+    return (keys as readonly string[]).includes(word) ? word as EmotionKey : null
+  } catch {
+    return null
+  }
 }
