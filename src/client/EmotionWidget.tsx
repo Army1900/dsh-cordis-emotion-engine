@@ -99,7 +99,7 @@ const MOODS: Record<EmotionKey, MoodDef> = {
 }
 
 const CSS = `
-  .mood-widget { position: fixed; right: 20px; bottom: 20px; z-index: 10; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; pointer-events: auto; font-family: system-ui, -apple-system, sans-serif; }
+  .mood-widget { position: fixed; right: 20px; bottom: 100px; z-index: 10; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; pointer-events: auto; font-family: system-ui, -apple-system, sans-serif; }
 
   .mood-tint-layer { position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0; mix-blend-mode: soft-light; will-change: transform, opacity, filter; }
   .mood-tint-in { opacity: 1; animation: moodLayerIn .9s cubic-bezier(.22,.68,.32,1) forwards; }
@@ -243,6 +243,8 @@ export function EmotionWidget(props: EmotionWidgetProps) {
   const [prevMood, setPrevMood] = useState<EmotionKey | null>(null)
   const [open, setOpen] = useState(false)
   const [auto, setAuto] = useState(true)
+  /** true = 全局 UI 变色；false = 仅水波球变色。 */
+  const [globalTheme, setGlobalTheme] = useState(true)
   const moodRef = useRef<EmotionKey | null>(null)
   moodRef.current = mood
 
@@ -254,11 +256,11 @@ export function EmotionWidget(props: EmotionWidgetProps) {
     return () => style.remove()
   }, [])
 
-  // 情绪 → 全局主题 token 覆盖。
+  // 情绪 → 全局主题 token 覆盖（仅"全局变色"模式）。
   useEffect(() => {
-    if (mood === null) return
+    if (mood === null || !globalTheme) return
     return theme.overrideTokens('mood-emotion', MOODS[mood].tokens)
-  }, [mood, theme])
+  }, [mood, theme, globalTheme])
 
   // 情绪变化 → 同步给 Host（系统提示词注入）。
   useEffect(() => {
@@ -322,8 +324,8 @@ export function EmotionWidget(props: EmotionWidgetProps) {
 
   return (
     <div className="mood-widget">
-      {renderLayer(prevMood, true)}
-      {renderLayer(mood, false)}
+      {globalTheme ? renderLayer(prevMood, true) : null}
+      {globalTheme ? renderLayer(mood, false) : null}
       {open ? (
         <div className="mood-panel">
           <div className="mood-panel-title">
@@ -331,6 +333,9 @@ export function EmotionWidget(props: EmotionWidgetProps) {
           </div>
           <button className={'mood-row' + (auto ? ' mood-row-active' : '')} onClick={() => setAuto(!auto)}>
             <span>🤖 自动感知 {auto ? '开' : '关'}</span>
+          </button>
+          <button className={'mood-row' + (globalTheme ? '' : ' mood-row-active')} onClick={() => setGlobalTheme(!globalTheme)}>
+            <span>🌐 变色范围：{globalTheme ? '全局 UI' : '仅水波球'}</span>
           </button>
           {(Object.keys(MOODS) as EmotionKey[]).map((key) => {
             const m = MOODS[key]
