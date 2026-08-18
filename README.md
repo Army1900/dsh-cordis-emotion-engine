@@ -1,133 +1,165 @@
 # 情绪引擎 Emotion Engine
 
-> 一套完整的 **Agent 情绪感知与颜色机制**：自动识别用户当前会话中的情绪，驱动全局动态配色、水波悬浮球、侧边栏同步变色，并将情绪实时注入系统提示词，让 AI 能感知用户情绪并调整回应语气。
+面向 [DeepSeek Harness（DSH）](https://github.com/deepseek-ai/deepseek-harness) 的 Cordis 插件。它会识别用户最近的情绪，并同步改变界面配色、动态背景和悬浮球，同时把情绪信息注入系统提示词，让 AI 调整回应语气。
 
-适用于 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 的动态 Cordis 插件。
+## 功能概览
 
----
-
-## ✨ 功能特性
-
-| 能力 | 说明 |
+| 功能 | 说明 |
 | --- | --- |
-| 🎭 **情绪感知** | 事件驱动：新消息到达时基于最近 5 条用户输入做 **LLM 语境分析**（防抖合并，非轮询），LLM 不可用时回退关键字评分（可手动开关） |
-| 🎨 **全局变色** | 覆盖主题 token（背景、面板、品牌色、**侧边栏**），5 种情绪 5 套亮/暗配色 |
-| 🌊 **动态背景** | 每种情绪专属的全屏动画（金云漂浮 / 蓝波流动 / 紫雾呼吸 / 橙光闪烁 / 红色心跳），切换时交叉淡入淡出 |
-| 💧 **水波悬浮球** | 右下角半透明球体，内部多层同心涟漪扩散，波纹颜色跟随情绪；点击展开磨砂情绪面板 |
-| 🧠 **提示词注入** | 当前情绪实时注入系统提示词，每次模型调用动态组装，AI 可感知并调整语气 |
-| 🔀 **自动/手动** | 自动感知与手动选择可随时切换，面板标题标注来源（自动/手动） |
+| 情绪感知 | 识别开心、平静、疲惫、焦虑和生气五种状态 |
+| 自动与手动模式 | 可以自动判断，也可以从悬浮面板手动选择或清除情绪 |
+| 界面联动 | 根据情绪切换主题色、侧边栏、动态背景和水波悬浮球 |
+| 变色范围 | 可以选择“全局 UI”或“仅水波球” |
+| 提示词注入 | 将当前情绪和回应建议动态加入系统提示词 |
+| 降级分析 | npm 版优先使用 LLM 分析语境，不可用时回退到关键词评分 |
 
----
+支持的情绪如下：
 
-## 🏗️ 架构
+| 情绪 | 主题色 | 背景效果 | AI 回应倾向 |
+| --- | --- | --- | --- |
+| 😊 开心 | 金黄 | 暖云漂移 | 轻松、积极、适当活泼 |
+| 😌 平静 | 蓝色 | 蓝波流动 | 平和、简洁 |
+| 😪 疲惫 | 紫色 | 紫雾呼吸 | 直接、精简，避免冗长 |
+| 😰 焦虑 | 橙色 | 光斑闪烁 | 先给可执行步骤，语气平稳 |
+| 😠 生气 | 红色 | 心跳脉动 | 先共情，再冷静解决问题 |
 
+## 选择安装方式
+
+本仓库同时提供动态插件版和 npm 包版。两种方式功能接近，但安装场景不同：
+
+| 方式 | 适合场景 | 是否常驻 | 对应源码 |
+| --- | --- | --- | --- |
+| 动态加载 | 快速体验、单次会话、开发调试 | 否，DSH 进程重启后需要重新定义 | `src/host.js`、`src/client.js` |
+| npm 包挂载 | 长期使用、随 DSH 启动、分发给其他用户 | 是 | `src/index.ts`、`src/client/` |
+
+如果只是想先体验效果，使用“方式一：动态加载”。如果要部署到自己的 DSH 环境并长期使用，选择“方式二：npm 包挂载”。
+
+> 当前版本尚未发布到 npm registry。npm 方式需要先在本仓库构建并打包，或者在发布后直接填写包名。
+
+## 方式一：动态加载
+
+动态加载不是在终端里执行命令，也不是把 JavaScript 粘贴到浏览器控制台。它的使用方式是：**在 DSH 对话中让 Agent 调用 Cordis 工具安装插件**。
+
+这种方式适合正在用 DSH Agent 开发本仓库的用户。安装时，DSH Agent 必须能够读取本仓库中的 `src/host.js` 和 `src/client.js`。
+
+### 最简单的安装方法
+
+1. 下载或克隆本仓库。
+2. 在 DSH 中打开一个以本仓库为工作目录的会话。
+3. 把下面这段话直接发送给 DSH Agent：
+
+```text
+请安装当前项目的情绪引擎动态插件：
+
+1. 读取 src/host.js 和 src/client.js 的完整内容。
+2. 调用 cordis_define 创建一个新插件：
+   - idPrefix: mood
+   - name: 情绪引擎 Emotion Engine
+   - purpose: 感知用户情绪，并驱动界面配色、悬浮球和系统提示词。
+   - code.host 使用 src/host.js 的完整内容
+   - code.client 使用 src/client.js 的完整内容
+3. 定义成功后，使用返回的 pluginId 和 packageId 调用 cordis_run，
+   以 run 模式启动插件。
+4. 最后告诉我 pluginId、packageId 和运行结果。
 ```
-┌───────────────────────── Browser (Client) ─────────────────────────┐
-│  shell.overlay 悬浮组件                                             │
-│  ├─ 水波球 + 情绪面板 (React, React.createElement)                  │
-│  ├─ theme.overrideTokens() → 全局主题变色（含侧边栏）               │
-│  └─ 全屏动态渐变层 (soft-light, 低强度, pointer-events: none)       │
-│         │  每 2.5s mood:analyze { sessionId }                       │
-│         ▼  情绪变化时 mood:set { mood }                             │
-│      host.call (Package 私有 JSON RPC)                              │
-└─────────────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────── Host (Node) ────────────────────────────┐
-│  sessionQuery.filterEvents(sessionId, [{kind:'type',               │
-│     values:['user/message']}]) → 最近 5 条用户消息                  │
-│  analyzeMood() → 关键字情感评分（按消息新旧加权）                   │
-│  systemPrompt.section('user-mood') → 每次模型调用动态注入           │
-│     "[用户情绪感知] 用户当前情绪：😊 开心。……"                       │
-└─────────────────────────────────────────────────────────────────────┘
+
+Agent 会替你完成 `cordis_define` 和 `cordis_run`，不需要手动拼装很长的 JSON 参数。
+
+### 首次授权
+
+Agent 启动插件后，DSH 页面可能出现 Client 插件授权提示：
+
+1. 点击“允许”。
+2. 如果这是你信任的本地源码，可以勾选“信任未来版本”。
+3. 页面右下角出现水波悬浮球即表示安装成功。
+
+如果没有看到授权提示或悬浮球，可以继续在同一个 DSH 会话中发送：
+
+```text
+请检查刚才安装的情绪引擎插件状态，并用 cordis_inspect_self 查看诊断信息。
 ```
 
-- **Host 半部**（`src/host.js`）：情绪分析 + 系统提示词注入
-- **Client 半部**（`src/client.js`）：UI、主题变色、动态背景、轮询与情绪同步
+### Agent 实际执行了什么
 
----
+动态版通过 DSH 提供的 Cordis 工具加载，不需要修改 DSH 的启动配置：
 
-## 🎭 情绪与配色
-
-| 情绪 | Emoji | 主色 | 动态背景效果 | 提示词回应引导 |
-| --- | --- | --- | --- | --- |
-| 开心 | 😊 | `#F5B83D` 金黄 | 金色暖云缓慢漂移 | 轻松积极、适当活泼 |
-| 平静 | 😌 | `#4FB3D9` 蓝 | 蓝色波条流动 | 平和简洁 |
-| 疲惫 | 😪 | `#9E93C2` 紫 | 紫雾呼吸 | 最简直接、避免冗长 |
-| 焦虑 | 😰 | `#FF9E4D` 橙 | 橙色光斑闪烁 | 先给可执行步骤、安抚 |
-| 生气 | 😠 | `#FF6B6B` 红 | 红色心跳脉动 | 冷静专业、先共情再解决 |
-
-每种情绪都有独立的亮色 / 暗色两套 token 值，覆盖：`--dsw-alias-bg-base`、`--dsw-alias-bg-layer-1/2`、`--dsw-alias-brand-primary`、`--dsw-specific-sidebar-fill`。
-
----
-
-## 📦 安装
-
-情绪引擎支持两种安装方式，按使用场景选择：
-
-| 方式 | 适用场景 | 持久性 |
+| 源码 | 传给 `cordis_define` 的字段 | 作用 |
 | --- | --- | --- |
-| **A. 会话内动态加载**（推荐） | 单会话试用、开发调试、随用随装 | 当前进程内，重启后需重新定义 |
-| **B. 常规插件安装**（进阶） | 想让插件常驻、随 DSH 一起启动 | 写入 host `cordis.yml`，重启即自动加载 |
+| `src/host.js` | `code.host` | 情绪分析和提示词注入 |
+| `src/client.js` | `code.client` | 悬浮球、面板、主题和动态背景 |
 
-### 方式 A：会话内动态加载（推荐）
+`cordis_define` 返回本次定义的 `pluginId` 和 `packageId`，随后 `cordis_run` 使用这两个 ID 激活它。上面的安装话术已经包含完整流程。
 
-情绪引擎是一个**动态 Cordis 插件**，在 DSH 会话中通过 `@pluginId` 机制加载。源码以函数体形式存放在 `src/`：
+### 后续管理
 
-| 文件 | 对应字段 |
+这些操作也可以直接用自然语言让 DSH Agent 执行：
+
+| 需求 | 可以发送给 Agent 的话 |
 | --- | --- |
-| `src/host.js` | `cordis_define` 的 `code.host` |
-| `src/client.js` | `cordis_define` 的 `code.client` |
+| 暂停 | “请暂停刚才安装的情绪引擎，但保留插件定义。” |
+| 恢复 | “请重新运行刚才的情绪引擎插件。” |
+| 更新 | “我修改了动态版源码，请读取两个文件，为现有插件定义新 Package 并以 update 模式升级。” |
+| 诊断 | “请用 cordis_inspect_self 检查情绪引擎的 Host 和 Client 状态。” |
+| 移除 | “请永久移除刚才安装的情绪引擎插件。” |
 
-**加载步骤（在 DSH 会话中）：**
+动态加载只保存在当前 DSH 进程中，重启后通常需要重新定义。它更像开发和体验入口；想要插件随 DSH 自动启动，请使用下面的 npm 包方式。
 
-1. **定义**：将 `src/host.js` 与 `src/client.js` 的内容分别作为 `code.host` / `code.client` 传入 `cordis_define`：
+## 方式二：npm 包挂载
 
-   ```
-   plugin:  { kind: "new", idPrefix: "mood" }
-   name:    "情绪引擎 Emotion Engine"
-   purpose: "一套完整的情绪颜色机制：自动识别用户情绪，驱动全局动态配色、水波悬浮球、侧边栏同步与系统提示词注入。"
-   ```
+npm 版是标准 Cordis Host + Client 双端插件。Host 监听新用户消息并分析情绪，Client 只读取状态和更新 UI。
 
-2. **运行**：`cordis_run` 激活（Client 端首次运行需要在 UI 中点击"允许"授权；勾选"信任未来版本"可免去后续批准）。
+### 前置条件
 
-3. **生效**：页面右下角出现水波悬浮球，自动感知默认开启。
+- 已安装 Node.js 和 npm。
+- DSH 部署已经提供 Typert 网关；默认部署通常已包含 `@deepseek-ai/dsh-api-gateway`。
+- 可以修改当前 DSH profile 下的 `cordis.patch.yml`。
 
-> 已有同名插件的会话，可用 `kind: "existing"` + 原 `pluginId` 追加新 Package，用 `cordis_run` 的 `update` 模式升级。
+### 1. 安装依赖并构建
 
-**日常维护：**
-
-| 操作 | 命令 |
-| --- | --- |
-| 暂停（保留定义） | `cordis_stop <pluginId>` |
-| 恢复运行 | `cordis_run <pluginId> <packageId> run` |
-| 升级到新版本 | `cordis_define` 追加 Package → `cordis_run ... update` |
-| 永久移除 | `cordis_undefine <pluginId>` |
-| 查看诊断 | `cordis_inspect_self <pluginId> <packageId>` |
-
-### 方式 B：常规插件安装（npm 发布版）
-
-情绪引擎已包装为**标准 npm 包**（Host + Client 双半部），发布后可通过 host 组合文件 `cordis.yml` 一行挂载、随 DSH 启动常驻。
-
-**包结构：**
-
-| 入口 | 用途 |
-| --- | --- |
-| `dsh-cordis-emotion-engine`（主入口） | Host 半部：`apply(ctx)` 注册 `EmotionService`（Remote）+ 系统提示词注入 |
-| `dsh-cordis-emotion-engine/client` | Client 半部：`dsh.client` web 插件（`exports["./client"]`） |
-| `dsh-cordis-emotion-engine/remote` | Typert Remote contribution（Client 挂载用） |
-
-**构建与发布：**
+在本仓库目录执行：
 
 ```bash
-npm install          # 安装依赖
-npm run build        # tsc 类型声明 + tsdown 打包 → lib/
-npm publish          # 发布到 npm registry
+npm install
+npm run typecheck
+npm run build
 ```
 
-**挂载到 DSH（用户 profile 的 `cordis.patch.yml`）：**
+构建完成后，`lib/` 中应包含：
 
-> ⚠️ **关键**：patch 列表是 `PatchOptions` 语义 —— 新增插件行必须用**无 id 的 `insert`**。
-> 直接写 `- id: xxx` + `name: xxx` 会被当作"覆盖已有 entry"处理，因找不到目标而被静默跳过（插件不加载）。
+```text
+lib/index.mjs                 Host 插件入口
+lib/client.js                 浏览器 Client bundle
+lib/typert.remote-client.js  Client/Host Remote 契约
+lib/types/                    TypeScript 类型声明
+```
+
+### 2. 生成本地安装包
+
+```bash
+npm pack
+```
+
+命令会在仓库根目录生成类似下面的文件：
+
+```text
+dsh-cordis-emotion-engine-0.1.0.tgz
+```
+
+### 3. 挂载到 DSH
+
+在 DSH 当前 profile 的 `cordis.patch.yml` 中添加：
+
+```yaml
+- insert:
+    - id: emotion-engine
+      name: /absolute/path/to/dsh-cordis-emotion-engine-0.1.0.tgz
+```
+
+请将 `name` 换成实际 tgz 绝对路径，然后重启 DSH。
+
+> 新增插件必须使用无 `id` 的外层 `insert`。直接写 `- id: emotion-engine` 和 `name: ...` 会被解释为覆盖已有条目；找不到目标时可能被静默跳过。
+
+发布到 npm registry 后，可以把本地 tgz 路径替换为包名：
 
 ```yaml
 - insert:
@@ -135,122 +167,177 @@ npm publish          # 发布到 npm registry
       name: dsh-cordis-emotion-engine
 ```
 
-重启 DSH 后插件自动加载：Host 半部激活（Remote + 提示词注入），Client 半部通过包的 `dsh.client` 声明被运行时发现，浏览器按需加载 `/plugins/<id>/client.js`。
+### 4. 验证安装
 
-> 前提：DSH 部署需已挂载 typert 网关（`@deepseek-ai/dsh-api-gateway`，默认部署自带）。
+重启 DSH 后按以下顺序检查：
 
----
+1. 页面右下角是否出现水波悬浮球。
+2. 点击悬浮球，手动选择情绪，确认球体颜色发生变化。
+3. 保持“全局 UI”模式，确认背景和侧边栏同步变色。
+4. 输入一条带明显情绪的消息，等待自动感知更新。
+5. 如果 Client 资源有缓存，强制刷新浏览器页面后再检查。
 
-## 🕹️ 使用指导
+## 使用说明
 
-### 悬浮球
-- **点击**：展开 / 收起磨砂情绪面板
-- **球内波纹**：每 0.9s 一条同心涟漪从中心扩散，颜色 = 当前情绪专属色
-- 未选择情绪时显示中性品牌色
-- **位置**：右下角，与输入框水平对齐（可通过 CSS `.mood-widget` 调整）
+### 悬浮球和面板
 
-### 面板
-| 控件 | 作用 |
+点击页面右下角的水波球，可以展开或收起控制面板。
+
+| 控件 | 行为 |
 | --- | --- |
-| 🤖 **自动感知 开/关** | 默认开：新消息到达时（防抖 2s）基于最近 5 条输入做 LLM 语境分析并自动切换；手动选情绪后自动关闭 |
-| 🌐 **变色范围** | 全局 UI（背景/面板/侧边栏都随情绪变色）或仅水波球（页面不动，只有球变色） |
-| 😊😌😪😰😠 情绪按钮 | 手动设置情绪（自动感知随之关闭） |
-| ✨ 清除情绪 | 恢复默认主题、停止提示词注入 |
+| 自动感知 | 开启后自动读取 Host 分析出的情绪 |
+| 变色范围 | 在“全局 UI”和“仅水波球”之间切换 |
+| 五个情绪按钮 | 手动设置情绪，并关闭自动感知 |
+| 清除情绪 | 清除当前状态、恢复默认主题，并停止情绪提示词注入 |
 
-面板标题会标注当前情绪来源：`当前情绪：开心（自动）` 或 `（手动）`。
+面板标题会显示当前状态和来源，例如：
+
+```text
+当前情绪：开心（自动）
+当前情绪：焦虑（手动）
+当前情绪：无
+```
+
+### 自动感知
+
+npm 版的自动感知流程为：
+
+1. Host 监听新的 `user/message` 事件。
+2. 连续消息在 2 秒防抖窗口内合并。
+3. 读取当前会话最近 5 条用户消息。
+4. 优先调用用户当前默认模型判断语境。
+5. LLM 不可用或未识别出明显情绪时，回退到中英文关键词评分。
+6. Client 每 3 秒读取一次状态并更新界面，不会重复调用 LLM。
+
+手动选择情绪会关闭当前 Client 的自动感知。再次打开后，界面会继续同步 Host 检测到的状态。
 
 ### 提示词注入
-- 有情绪时，每次模型调用都会带上：`[用户情绪感知] 用户当前情绪：😊 开心。用户心情很好……`
-- 情绪为"无"时不注入任何内容
-- 切换情绪后**下一条消息立即生效**（提示词每次动态组装）
 
-### 效果示例
-| 你输入 | 期望效果 |
-| --- | --- |
-| "好开心啊，终于搞定了！" | 😊 金色暖云 + AI 语气轻快 |
-| "有点焦虑，感觉来不及了…" | 😰 橙色闪烁 + AI 先给步骤 |
-| "今天好累，不想写了" | 😪 紫雾 + AI 回答简洁 |
-| "气死我了，这什么鬼！" | 😠 红色心跳 + AI 先共情 |
-| "嗯，就这样吧，挺好的" | 😌 蓝波流动 + AI 平和 |
+存在有效情绪时，Host 会动态加入类似下面的系统提示词段落：
 
----
-
-## 📁 仓库结构
-
-仓库包含**两套源码**：`src/host.js` + `src/client.js` 为动态插件版函数体（安装方式 A），`src/index.ts` 等为可发布 npm 包版（安装方式 B）。
-
+```text
+[用户情绪感知] 用户当前情绪：焦虑 😰。用户可能着急或有压力，
+请先给出明确、可执行的步骤，语气平稳安抚，不要增加负担。
 ```
+
+切换情绪后，下一次模型调用会读取新状态。清除情绪后，该段落返回空文本。
+
+### 输入示例
+
+| 用户输入 | 预期结果 |
+| --- | --- |
+| “好开心啊，终于搞定了！” | 开心：金色主题，回应更轻快 |
+| “有点焦虑，感觉来不及了……” | 焦虑：橙色主题，优先给出步骤 |
+| “今天好累，不想写了。” | 疲惫：紫色主题，回应更精简 |
+| “气死我了，这什么鬼！” | 生气：红色主题，先共情再处理 |
+| “嗯，就这样吧，挺好的。” | 平静：蓝色主题，回应平和 |
+
+## 工作原理
+
+```text
+Browser / Client
+  ├─ EmotionWidget：水波球、控制面板、动态背景
+  ├─ theme.overrideTokens：覆盖主题和侧边栏 token
+  ├─ remote.emotion.get：读取 Host 情绪状态
+  └─ remote.emotion.set：同步手动选择或清除操作
+                         │
+                         ▼ Typert Remote
+Host / Node
+  ├─ EmotionService：get / analyze / set
+  ├─ session/event：监听新的用户消息
+  ├─ llm.stream：分析最近 5 条输入的语境
+  ├─ KEYWORDS：LLM 不可用时的关键词回退
+  └─ systemPrompt.section：动态注入 user-mood 段落
+```
+
+## 项目结构
+
+```text
 dsh-cordis-emotion-engine/
-├── README.md              # 本文件
-├── package.json           # 包元信息（exports / dsh.client / peerDependencies）
-├── tsconfig.json          # TypeScript 配置（声明产出到 lib/types/）
-├── tsdown.config.ts       # 打包配置（lib/index.mjs / index.js / remote）
+├── README.md
+├── package.json
+├── tsconfig.json
+├── tsdown.config.ts
 ├── scripts/
-│   └── smoke-host.mjs     # Host 半部冒烟测试（裸 Cordis Context）
-├── src/
-│   ├── host.js            # 【方式 A】动态插件 Host 半部函数体
-│   ├── client.js          # 【方式 A】动态插件 Client 半部函数体
-│   ├── index.ts           # 【方式 B】Host 半部：EmotionService(Remote) + 分析 + 提示词注入
-│   ├── typert.remote-client.ts  # 【方式 B】Typert Remote contribution（Client 挂载用）
-│   └── client/
-│       ├── index.tsx      # 【方式 B】Client 半部：dsh.client 插件入口（$mount + slots）
-│       └── EmotionWidget.tsx    # 水波球 + 情绪面板 + 动态背景组件
-└── lib/                   # 构建产物（npm publish 内容，不入库）
+│   └── smoke-host.mjs
+├── docs/
+│   ├── FIXING-EXPERIENCE.md
+│   └── DEVELOP-PUBLISH-SKILL.md
+└── src/
+    ├── host.js                   动态版 Host 函数体
+    ├── client.js                 动态版 Client 函数体
+    ├── index.ts                  npm 版 Host 和 EmotionService
+    ├── typert.remote-client.ts   Typert Remote 描述
+    └── client/
+        ├── index.tsx             npm 版 Client 入口
+        └── EmotionWidget.tsx     悬浮球、面板、主题和动画
 ```
 
-## 🛠️ 开发与调试
+## 开发
 
-- **构建**：`npm run build`（tsc 声明 + tsdown 打包），产物在 `lib/`
-- **类型检查**：`npm run typecheck`
-- **调词表**：编辑 `src/index.ts` 的 `KEYWORDS`（5 类情绪各一份中英关键词）
-- **调配色/动效**：编辑 `src/client/EmotionWidget.tsx` 的 `MOODS.tokens` 与 `CSS`
-- **改 Remote 契约**：同步修改 `src/index.ts`（EmotionService 方法）与 `src/typert.remote-client.ts`（descriptors）
-- **本地挂载测试**：`npm pack` 后在 DSH 的 host `cordis.yml` 加 `- id: emotion-engine` + `name: <tgz 路径>`，重启 DSH
+常用命令：
 
-## 📜 版本历史
+```bash
+npm run typecheck   # TypeScript 类型检查
+npm run build       # 生成 Host、Client、Remote 和类型产物
+node scripts/smoke-host.mjs
+npm pack            # 生成本地 tgz 安装包
+```
 
-| 版本 | 变更 |
+常见修改位置：
+
+| 需求 | 文件 |
 | --- | --- |
-| v1 | 首个 Client 插件：右下角悬浮面板 + 主题 token 变色 |
-| v2 | Siri 风格悬浮球、每种情绪专属动态背景、交叉淡入淡出、侧边栏变色 |
-| v3 | 悬浮球简化 |
-| v4 | 半透明水波球（多层涟漪） |
-| v5 | 球内波纹/色点直接使用情绪专属颜色，去掉表情 |
-| v6 | **自动情绪感知**（Host + Client 双端，基于最近 5 条用户输入） |
-| v7 | **情绪注入系统提示词**（systemPrompt.section 动态求值） |
-| v8 | 动态背景降低强度、理顺层级，避免遮挡会话文字 |
-| v9 | 更名"情绪引擎 Emotion Engine" |
-| v10 | **可发布 npm 包**：标准 Cordis 插件结构（Host Remote + Client bundle）、tsdown 构建、typert registry 端点注册 |
-| v10 | **可发布 npm 包**：标准 Cordis 插件结构、EmotionService Remote、dsh.client bundle、tsdown 构建 |
+| 修改关键词和提示词 | `src/index.ts` |
+| 修改配色、动画和面板 | `src/client/EmotionWidget.tsx` |
+| 修改 Remote 方法 | `src/index.ts` 与 `src/typert.remote-client.ts` |
+| 修改动态加载版 | `src/host.js` 与 `src/client.js` |
+| 修改打包方式 | `tsdown.config.ts` |
 
-## ⚠️ 已知限制
+修改 Remote 契约时，Host 方法、Client 类型和 `typert.remote-client.ts` 描述必须保持一致。动态版和 npm 版是两套源码，功能修改也需要检查是否应同步到另一套实现。
 
-- **层级**：动态背景位于 `shell.overlay`（平台机制上在所有内容之上），因此采用低强度 `soft-light` 混合避免遮挡文字；若仍嫌明显可进一步降低透明度
-- **全局情绪**：目前注入的是"最近一次活跃会话"的情绪（全局共享）；多会话并行时会有轻微串扰，如需按会话隔离需引入 scope 映射
-- **词表识别**：关键字评分为启发式，口语新词可能漏判（可在 `KEYWORDS` 中补充）
+## 常见问题
 
-## 🐛 常见问题（踩坑速查）
+### 插件重启后没有加载
 
-| 症状 | 根因 | 修复 |
-| --- | --- | --- |
-| patch 加了行插件不加载 | patch 是 `PatchOptions` 语义，`{id,name}` 是覆盖不是新增 | 用无 id 的 `- insert:` |
-| 启动报 `__ModuleLoader__.load` 未注册 | client bundle 不是 factory 格式 | tsdown `format: 'cjs'` + banner/footer |
-| `cannot get property "remote.emotion" without inject` | Guard 拦截命名空间访问；inject 声明又会让 boot 永久等待 | inject 只声明 `remote`，用 `ctx.get('remote.emotion')` 拿 |
-| `/api/emotion/analyze` 404 | 端点没注册；apply 时 typert 服务不可见 | fiber 激活后（延迟）`typert.register(...)` |
-| 接口 200 但 UI 无状态 | remote 返回 `{ok, value}`，组件没解包 | `res.value.mood` |
-| 最新消息情绪被历史压过 | 加权太平缓 | 最新消息权重 3.0 → 最早 0.5 陡峭衰减 |
-| 改了没生效 | 部署目录旧产物残留 | `rm -rf` 部署 lib 再解压 |
+确认 `cordis.patch.yml` 使用了 `insert` 结构，并检查 tgz 路径是否为绝对路径。
 
-> 📖 每个问题的完整分析（症状 → 根因 → 修复 → 教训）见 [docs/FIXING-EXPERIENCE.md](docs/FIXING-EXPERIENCE.md)。
+### 页面没有出现悬浮球
 
-## 🚧 TODO
+先检查 Host 是否成功加载，再确认 `/plugins/<id>/client.js` 可以访问。重新构建或替换安装包后，重启 DSH 并强制刷新浏览器。
 
-- [x] **常规插件包装（安装方式 B）**：标准 npm 包结构 + Remote 服务 + `dsh.client` bundle + tsdown 构建
-- [ ] **发布到 npm registry**：`npm publish`（需 npm 账号，发布后实测挂载）
-- [ ] **按会话隔离情绪**：通过 scope 映射让每个会话注入各自的情绪，避免多会话串扰
-- [ ] **情绪词表增强**：补充口语化情绪词（砸了/服了/完了/糟了 等），支持自定义词表配置
-- [ ] **效果截图/演示**：为 README 补充各情绪主题的界面截图
+### Remote 接口返回 404
 
-## 📄 License
+确认 DSH 已挂载 Typert 网关，并确认 Host 已将 Remote descriptors 注册到 typert registry。具体排查过程参见 [`docs/FIXING-EXPERIENCE.md`](docs/FIXING-EXPERIENCE.md)。
 
-MIT
+### 接口成功但 UI 不更新
+
+Typert Remote 返回的是 `{ ok, value }`，实际情绪位于 `res.value.mood`。
+
+### 修改代码后仍然是旧效果
+
+重新执行 `npm run build` 和 `npm pack`，确认 DSH 配置指向新生成的 tgz。必要时清理部署端旧产物并强制刷新浏览器缓存。
+
+## 已知限制
+
+- npm 版目前使用一个全局情绪状态，多会话并行时可能互相影响。
+- 动态版与 npm 版的自动分析机制不同，修改功能时需要分别维护。
+- 关键词评分属于启发式判断，口语、新词和复杂反讽可能识别不准。
+- 动态背景位于 `shell.overlay`，通过低透明度和 `soft-light` 降低对正文可读性的影响。
+
+## 后续计划
+
+- [ ] 发布到 npm registry 并完成公开安装验证
+- [ ] 按会话隔离情绪状态
+- [ ] 支持自定义关键词和分析配置
+- [ ] 增加 Host 事件、LLM fallback 和 Client 交互测试
+- [ ] 补充不同情绪主题的截图或演示
+
+## 相关文档
+
+- [`docs/FIXING-EXPERIENCE.md`](docs/FIXING-EXPERIENCE.md)：问题症状、原因和修复记录
+- [`docs/DEVELOP-PUBLISH-SKILL.md`](docs/DEVELOP-PUBLISH-SKILL.md)：DSH 插件开发与发布经验
+
+## License
+
+[MIT](LICENSE)
